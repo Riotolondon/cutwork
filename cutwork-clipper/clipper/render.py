@@ -75,7 +75,22 @@ def build_ass(words, start, end, hook="", captions=True, hook_seconds=3.5):
     return "\n".join(lines) + "\n"
 
 
-def face_center_x(source, start, end, samples=8):
+def shot_starts(source, start, end):
+    """Seconds from the clip's start at which the picture cuts to another camera."""
+    try:
+        p = run(["ffmpeg", "-hide_banner", "-ss", f"{start:.2f}", "-t", f"{end - start:.2f}", "-i", str(source),
+                 "-an", "-vf", "scale=320:-2,select='gt(scene,0.3)',showinfo", "-f", "null", "-"], timeout=600)
+    except MediaError:
+        return []
+    cuts = []
+    for t in re.findall(r"pts_time:([0-9.]+)", p.stderr or ""):
+        t = float(t)
+        if t > 0.3 and (not cuts or t - cuts[-1] > 0.4):
+            cuts.append(t)
+    return cuts[:40]
+
+
+def face_center_x(source, start, end, samples=8, need=2):
     """Median horizontal face position (0-1), or None. Needs opencv (optional)."""
     try:
         import cv2
@@ -104,10 +119,31 @@ def face_center_x(source, start, end, samples=8):
                 xs.append((x + fw / 2) / small.shape[1])
     finally:
         cap.release()
-    if len(xs) < 2:
+    if len(xs) < need:
         return None
     xs.sort()
     return xs[len(xs) // 2]
+
+
+def _crop_x(source, W, crop_w, start, end):
+    """Where the vertical crop sits: a number, or an ffmpeg expression that moves it at each camera cut."""
+    def left(cx):
+        return int(min(max((cx if cx is not None else 0.5) * W - crop_w / 2, 0), W - crop_w))
+    cuts = shot_starts(source, start, end)
+    if not cuts:
+        return str(left(face_center_x(source, start, end)))
+    edges = [0.0] + cuts + [end - start]
+    xs = []
+    for a, b in zip(edges, edges[1:]):
+        n = min(6, max(2, int((b - a) / 1.5)))
+        x = left(face_center_x(source, start + a + 0.1, start + max(b - 0.1, a + 0.2), samples=n, need=1))
+        if xs and abs(x - xs[-1]) < 0.04 * W:
+            x = xs[-1]          # the same shot, or near enough: hold still
+        xs.append(x)
+    expr = str(xs[-1])
+    for t, x in zip(reversed(cuts), reversed(xs[:-1])):
+        expr = f"if(lt(t,{t - 0.001:.3f}),{x},{expr})"
+    return f"'{expr}'"
 
 
 def _base_filter(source, W, H, start, end, framing):
@@ -115,10 +151,9 @@ def _base_filter(source, W, H, start, end, framing):
     crop_w = int(H * 9 / 16) // 2 * 2
     if framing == "face" and W and H and 2 <= crop_w <= W:
         try:
-            cx = face_center_x(source, start, end) or 0.5
+            x = _crop_x(source, W, crop_w, start, end)
         except Exception:
-            cx = 0.5   # face detection is a nice-to-have; fall back to a centre crop
-        x = int(min(max(cx * W - crop_w / 2, 0), W - crop_w))
+            x = str((W - crop_w) // 2)   # face detection is a nice-to-have; fall back to a centre crop
         return f"[0:v]crop={crop_w}:{H}:{x}:0,scale=1080:1920,setsar=1[b]"
     if W and H and abs(W / H - 9 / 16) < 0.02:      # already vertical: just resize
         return "[0:v]scale=1080:1920,setsar=1[b]"
@@ -158,8 +193,11 @@ def render_clip(source, out_path, words, start, end, hook="", framing="face",
     cmd = ["ffmpeg", "-y", "-hide_banner", "-ss", f"{start:.2f}", "-t", f"{end - start:.2f}", "-i", str(source)]
     if watermark and WATERMARK.exists():
         cmd += ["-i", str(WATERMARK)]
-        chain += (";[1:v]scale=250:-1,format=rgba,colorchannelmixer=aa=0.8[wm];"
-                  "[s][wm]overlay=48:130[v]")
+        # a soft dark shadow under the mark keeps it readable on white and bright backgrounds
+        chain += (";[1:v]scale=250:-1,format=rgba,pad=iw+40:ih+40:20:20:color=black@0,split[w1][w2];"
+                  "[w1]colorchannelmixer=aa=0.9[wm];"
+                  "[w2]colorchannelmixer=rr=0:gg=0:bb=0:aa=0.75,gblur=sigma=5[sh];"
+                  "[s][sh]overlay=28:112[s2];[s2][wm]overlay=28:110[v]")
         vmap = "[v]"
     else:
         vmap = "[s]"
