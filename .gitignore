@@ -1,0 +1,18 @@
+# videos, clips and anything made while the app runs
+Clips/
+cutwork-clipper/projects/
+cutwork-clipper/tests/media/
+cutwork-clipper/tests/_work/
+*.mp4
+*.mov
+*.mkv
+*.wav
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# local settings and secrets
+.env
+.claude/

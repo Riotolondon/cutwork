@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CUTWORK Clipper</title>
+<style>
+:root{--ink:#111;--orange:#FF4F1A;--paper:#F4F2EE;--card:#fff;--line:#ddd9d2;--mute:#6b6862}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--paper);color:var(--ink)}
+header{background:var(--ink);color:var(--paper);padding:14px 24px;display:flex;align-items:center;gap:12px}
+header b{font-size:18px;letter-spacing:.08em}header span{color:#aaa;font-size:13px}
+.logo{width:26px;height:26px;display:inline-block}
+main{max-width:1180px;margin:0 auto;padding:20px 24px 80px}
+h2{font-size:16px;margin:0 0 12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+label{display:block;font-size:13px;color:var(--mute);margin-bottom:4px}
+input[type=text],input[type=number],select,textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;font:inherit;background:#fff}
+textarea{min-height:90px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:12px}
+button{font:inherit;padding:8px 14px;border-radius:6px;border:1px solid var(--ink);background:#fff;cursor:pointer}
+button.primary{background:var(--orange);border-color:var(--orange);color:#fff;font-weight:600}
+button.small{padding:3px 9px;font-size:13px}
+button:disabled{opacity:.5;cursor:not-allowed}
+.err{color:#b3261e;font-size:14px;margin-top:8px}
+.mute{color:var(--mute);font-size:13px}
+.bar{height:8px;background:#e8e5df;border-radius:4px;overflow:hidden;margin-top:8px}
+.bar i{display:block;height:100%;background:var(--orange);width:0;transition:width .4s}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:16px;align-items:start}
+@media(max-width:900px){.grid{grid-template-columns:1fr}}
+.sticky{position:sticky;top:12px}
+video{width:100%;border-radius:8px;background:#000}
+.m{border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:10px;background:#fff}
+.m.on{border-color:var(--orange);box-shadow:0 0 0 1px var(--orange)}
+.mh{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.score{background:var(--ink);color:#fff;border-radius:5px;padding:1px 8px;font-weight:700;font-size:13px}
+.tag{background:var(--paper);border-radius:4px;padding:1px 7px;font-size:12px;color:var(--mute)}
+.m p{margin:8px 0;font-size:14px;max-height:4.5em;overflow:hidden}
+.times{display:flex;gap:8px;align-items:end;flex-wrap:wrap}
+.times div{width:110px}.times .hook{flex:1;min-width:200px;width:auto}
+.clips{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
+.clips a{font-size:13px}
+.projects a{margin-right:12px;font-size:13px;color:var(--ink)}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<header>
+  <svg class="logo" viewBox="0 0 256 256"><path fill="#F4F2EE" d="M36 76a40 40 0 0 1 40-40h4l44 164v20H76a40 40 0 0 1-40-40z"/><path fill="#FF4F1A" d="M96 18h62l48 184h-62z"/><path fill="#F4F2EE" d="M174 36h6a40 40 0 0 1 40 40v104a40 40 0 0 1-24 37z"/></svg>
+  <b>CUTWORK</b><span>Clipper · runs on your computer</span>
+</header>
+<main>
+  <div class="card hidden" id="banner" style="border-color:#b3261e;color:#b3261e"></div>
+  <div class="card">
+    <h2>1. Add a video</h2>
+    <div class="row">
+      <div><label>Upload a video file</label><input type="file" id="file" accept="video/*,.mkv"></div>
+      <div><label>…or the file's path on this computer</label><input type="text" id="path" placeholder="C:\Videos\podcast.mp4"></div>
+      <div><label>…or a video link (needs yt-dlp)</label><input type="text" id="url" placeholder="https://…"></div>
+    </div>
+    <div class="row">
+      <div><label>Shortest clip (seconds)</label><input type="number" id="min_len" value="20" min="5"></div>
+      <div><label>Longest clip (seconds)</label><input type="number" id="max_len" value="45" min="8"></div>
+      <div><label>How many moments to mark</label><input type="number" id="count" value="12" min="1" max="40"></div>
+      <div><label>Transcription quality</label><select id="model"><option value="base">Fast (base)</option><option value="small" selected>Balanced (small)</option><option value="medium">Best, slow (medium)</option></select></div>
+      <div><label>Language (blank = auto)</label><input type="text" id="language" placeholder="en"></div>
+    </div>
+    <label>Niche keywords that should score higher (blank = built-in Tech &amp; AI list)</label>
+    <input type="text" id="keywords" placeholder="ai, gpt, nvidia, startup…">
+    <div style="margin-top:12px"><button class="primary" id="go">Find the best moments</button></div>
+    <div class="err" id="newErr"></div>
+    <div class="projects mute" id="projects" style="margin-top:10px"></div>
+  </div>
+
+  <div class="card hidden" id="progress">
+    <b id="stage">Starting</b>
+    <div class="bar"><i id="pbar"></i></div>
+    <div class="err" id="procErr"></div>
+    <div class="hidden" id="failBtns" style="margin-top:10px"><button id="retryBtn">Try again</button> <button id="removeBtn">Remove this video</button></div>
+  </div>
+
+  <div class="grid hidden" id="work">
+    <div>
+      <div class="card">
+        <h2>2. Review the marked moments <span class="mute" id="pname"></span></h2>
+        <p class="mute">Ranked by score. Tick the ones you want, fix the start and end, add an on-screen hook, then export. The score is a rough first pass, so trust your own eye.</p>
+        <div id="moments"></div>
+      </div>
+      <div class="card">
+        <h2>Sharper picks: ask Claude</h2>
+        <p class="mute">Copy the transcript, paste it into your Claude chat, then paste Claude's reply here. Its picks are added to the top of the list with hooks filled in.</p>
+        <button id="copyPrompt">Copy transcript for Claude</button> <span class="mute" id="copyMsg"></span>
+        <textarea id="importBox" placeholder='Paste Claude&#39;s reply here: [{"start": 123.4, "end": 158.0, "hook": "…"}]' style="margin-top:10px"></textarea>
+        <button id="importBtn" style="margin-top:8px">Add these moments</button>
+        <div class="err" id="importErr"></div>
+      </div>
+    </div>
+    <div class="sticky">
+      <div class="card">
+        <video id="player" controls preload="metadata"></video>
+        <div class="mute" id="nowPlaying" style="margin-top:6px">Press Preview on a moment to watch it here.</div>
+      </div>
+      <div class="card">
+        <h2>3. Export</h2>
+        <label>Framing</label>
+        <select id="framing"><option value="face">Fill the screen, centred on the speaker</option><option value="fit">Whole frame on a blurred background (screen recordings)</option></select>
+        <div style="margin:10px 0"><label style="display:inline;color:inherit"><input type="checkbox" id="captions" checked> Word-by-word captions</label>
+        <div class="mute" style="margin-top:4px">Every clip carries the CUTWORK watermark.</div></div>
+        <button class="primary" id="exportBtn">Export ticked clips</button>
+        <div class="mute" id="exportMsg" style="margin-top:8px"></div>
+        <div class="bar hidden" id="ebarWrap"><i id="ebar"></i></div>
+        <div class="err" id="exportErr"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card hidden" id="clipsCard">
+    <h2>Finished clips <span class="mute">(1080×1920, also filed per video in your Clips folder)</span></h2>
+    <div class="clips" id="clips"></div>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let pid = null, proj = null, timer = null, stopAt = null, rendered = false;
+const fmt = s => { s = Math.max(0, s); const m = Math.floor(s / 60); return m + ':' + String(Math.floor(s % 60)).padStart(2, '0'); };
+const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const OFFLINE = 'The app is not answering. Check that the CUTWORK Clipper window is still open, then reload this page.';
+function banner(text) { $('banner').textContent = text || ''; $('banner').classList.toggle('hidden', !text); }
+async function api(url, opt) {
+  let r;
+  try { r = await fetch(url, opt); } catch (e) { banner(OFFLINE); throw new Error(OFFLINE); }
+  if ($('banner').textContent === OFFLINE) banner('');
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || 'Something went wrong.'); return j;
+}
+async function loadProjects() {
+  let list; try { list = await api('/api/projects'); } catch (e) { return; }
+  $('projects').innerHTML = list.length ? 'Earlier videos: ' + list.slice(0, 8).map(p =>
+    `<span style="white-space:nowrap"><a href="#" class="op" data-id="${p.id}" style="margin-right:2px">${esc(String(p.name).slice(0, 40))}</a><a href="#" class="del" data-id="${p.id}" title="Remove this video and its clips" style="color:#b3261e;text-decoration:none">×</a></span>`).join(' ') : '';
+  $('projects').querySelectorAll('a.op').forEach(a => a.onclick = e => { e.preventDefault(); open(a.dataset.id); });
+  $('projects').querySelectorAll('a.del').forEach(a => a.onclick = e => { e.preventDefault(); removeProject(a.dataset.id); });
+}
+async function removeProject(id) {
+  if (!confirm('Remove this video and its exported clips from the app? The original video file is not touched unless you uploaded it here.')) return;
+  try { await api('/api/projects/' + id, {method: 'DELETE'}); } catch (e) { alert(e.message); return; }
+  if (id === pid) { clearInterval(timer); pid = null; proj = null; for (const k of ['progress', 'work', 'clipsCard']) $(k).classList.add('hidden'); }
+  loadProjects();
+}
+$('retryBtn').onclick = async () => { $('procErr').textContent = ''; try { await api(`/api/projects/${pid}/retry`, {method: 'POST'}); open(pid); } catch (e) { $('procErr').textContent = e.message; } };
+$('removeBtn').onclick = () => removeProject(pid);
+api('/api/health').then(h => { if (!h.ffmpeg) banner('ffmpeg is not installed, so videos cannot be processed yet. On Windows: open PowerShell, run  winget install Gyan.FFmpeg  then start the app again.'); }).catch(() => {});
+$('go').onclick = async () => {
+  $('newErr').textContent = '';
+  const fd = new FormData();
+  if ($('file').files[0]) fd.append('file', $('file').files[0]);
+  for (const k of ['path','url','min_len','max_len','count','model','language','keywords']) fd.append(k, $(k).value);
+  if (!$('file').files[0] && !$('path').value.trim() && !$('url').value.trim()) { $('newErr').textContent = 'Choose a video file, a file path, or a link first.'; return; }
+  $('go').disabled = true; $('go').textContent = 'Uploading…';
+  try { const r = await api('/api/projects', {method: 'POST', body: fd}); open(r.id); }
+  catch (e) { $('newErr').textContent = e.message; }
+  $('go').disabled = false; $('go').textContent = 'Find the best moments';
+};
+function open(id) {
+  pid = id; rendered = false; clearInterval(timer); stopAt = null; $('player').pause();
+  for (const k of ['exportMsg', 'exportErr', 'importErr', 'copyMsg']) $(k).textContent = '';
+  $('clips').dataset.sig = ''; $('clips').innerHTML = '';
+  poll(); timer = setInterval(poll, 1500);
+}
+async function poll() {
+  const mine = pid; let got;
+  try { got = await api('/api/projects/' + mine); } catch (e) { return; }
+  if (mine !== pid) return;          // the user switched videos while this answer was on its way
+  proj = got;
+  const st = proj.status;
+  $('failBtns').classList.toggle('hidden', st.stage !== 'error');
+  if (st.stage === 'ready') {
+    $('progress').classList.add('hidden'); $('work').classList.remove('hidden');
+    if (!rendered) { $('moments').innerHTML = ''; renderMoments(); $('player').src = `/media/${pid}/proxy`; $('pname').textContent = '· ' + proj.name; rendered = true; loadProjects(); }
+    renderExport();
+  } else {
+    $('work').classList.add('hidden'); $('clipsCard').classList.add('hidden'); $('progress').classList.remove('hidden');
+    $('stage').textContent = st.stage === 'error' ? 'That didn\'t work' : st.stage + (st.pct ? ` · ${st.pct}%` : '…');
+    $('pbar').style.width = (st.pct || 3) + '%';
+    $('procErr').textContent = st.error || '';
+    if (st.stage === 'error') clearInterval(timer);
+  }
+}
+function renderMoments() {
+  const keep = {};   // what the user has already ticked or typed survives a re-draw
+  document.querySelectorAll('.m').forEach(el => keep[el.dataset.id] = {on: el.querySelector('.pick').checked,
+    s: el.querySelector('.s').value, e: el.querySelector('.e').value, h: el.querySelector('.h').value});
+  drawMoments();
+  document.querySelectorAll('.m').forEach(el => { const k = keep[el.dataset.id]; if (!k) return;
+    el.querySelector('.pick').checked = k.on; el.classList.toggle('on', k.on);
+    el.querySelector('.s').value = k.s; el.querySelector('.e').value = k.e; el.querySelector('.h').value = k.h;
+    el.querySelector('.s').oninput(); });
+}
+function drawMoments() {
+  $('moments').innerHTML = proj.moments.map(m => `
+    <div class="m" data-id="${m.id}">
+      <div class="mh">
+        <input type="checkbox" class="pick">
+        ${m.score ? `<span class="score">${m.score}</span>` : ''}
+        ${m.source === 'claude' ? '<span class="tag" style="background:#ffe3d9;color:#a12f0a">Claude pick</span>' : ''}
+        <b class="range"></b>
+        ${(m.reasons || []).map(r => `<span class="tag">${esc(r)}</span>`).join('')}
+        <button class="small prev" style="margin-left:auto">▶ Preview</button>
+      </div>
+      <p>${esc(m.text)}</p>
+      <div class="times">
+        <div><label>Start (sec)</label><input type="number" class="s" step="0.5" min="0" value="${m.start}"></div>
+        <div><label>End (sec)</label><input type="number" class="e" step="0.5" min="0" value="${m.end}"></div>
+        <div class="hook"><label>On-screen hook (optional, shows for the first 3 seconds)</label><input type="text" class="h" maxlength="70" value="${esc(m.hook)}" placeholder="e.g. Why GPUs are the new oil"></div>
+      </div>
+    </div>`).join('') || '<p class="mute">No moments found. Try a wider clip length range.</p>';
+  document.querySelectorAll('.m').forEach(el => {
+    const upd = () => { const s = +el.querySelector('.s').value, e = +el.querySelector('.e').value;
+      el.querySelector('.range').textContent = `${fmt(s)} – ${fmt(e)} · ${Math.round(e - s)}s`; };
+    upd();
+    el.querySelector('.s').oninput = upd; el.querySelector('.e').oninput = upd;
+    el.querySelector('.pick').onchange = ev => el.classList.toggle('on', ev.target.checked);
+    el.querySelector('.prev').onclick = () => {
+      const v = $('player'); stopAt = +el.querySelector('.e').value; v.currentTime = +el.querySelector('.s').value; v.play();
+      $('nowPlaying').textContent = 'Previewing ' + el.querySelector('.range').textContent;
+    };
+  });
+}
+$('player').ontimeupdate = () => { if (stopAt !== null && $('player').currentTime >= stopAt) { $('player').pause(); stopAt = null; } };
+function picks() {
+  return [...document.querySelectorAll('.m')].filter(el => el.querySelector('.pick').checked).map(el => {
+    const m = proj.moments.find(x => x.id == el.dataset.id);
+    return {id: m.id, text: m.text, start: +el.querySelector('.s').value, end: +el.querySelector('.e').value, hook: el.querySelector('.h').value.trim()};
+  });
+}
+$('exportBtn').onclick = async () => {
+  $('exportErr').textContent = '';
+  const ms = picks();
+  if (!ms.length) { $('exportErr').textContent = 'Tick at least one moment first.'; return; }
+  const bad = ms.find(m => m.end - m.start < 3);
+  if (bad) { $('exportErr').textContent = 'A ticked clip has its end before (or too close to) its start.'; return; }
+  try { await api(`/api/projects/${pid}/export`, {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({moments: ms, framing: $('framing').value, captions: $('captions').checked})}); poll(); }
+  catch (e) { $('exportErr').textContent = e.message; }
+};
+function renderExport() {
+  const ex = proj.export || {};
+  $('exportBtn').disabled = !!ex.running;
+  $('ebarWrap').classList.toggle('hidden', !ex.running);
+  if (ex.running) { $('exportMsg').textContent = `Rendering clip ${Math.min(ex.done + 1, ex.total)} of ${ex.total}…`; $('ebar').style.width = (ex.done / ex.total * 100 + 4) + '%'; }
+  else if (ex.total) $('exportMsg').textContent = `Done: ${ex.done} of ${ex.total} clips exported.`;
+  $('exportErr').textContent = ex.error || '';
+  const clips = ex.clips || [];
+  $('clipsCard').classList.toggle('hidden', !clips.length);
+  const sig = clips.map(c => c.file).join('|');
+  if ($('clips').dataset.sig !== sig) {
+    $('clips').dataset.sig = sig;
+    $('clips').innerHTML = clips.map(c => `<div><video controls preload="metadata" src="/media/${pid}/clips/${encodeURIComponent(c.file)}"></video>
+      <div class="mute">${fmt(c.start)} – ${fmt(c.end)}</div><a href="/media/${pid}/clips/${encodeURIComponent(c.file)}?dl=1">Download</a></div>`).join('');
+  }
+}
+$('copyPrompt').onclick = async () => {
+  try { const r = await api(`/api/projects/${pid}/claude_prompt`);
+    await navigator.clipboard.writeText(r.prompt); $('copyMsg').textContent = 'Copied. Paste it into Claude.'; }
+  catch (e) { $('copyMsg').textContent = 'Could not copy: ' + e.message; }
+};
+$('importBtn').onclick = async () => {
+  $('importErr').textContent = '';
+  if (!$('importBox').value.trim()) { $('importErr').textContent = 'Paste Claude\'s reply first.'; return; }
+  try { await api(`/api/projects/${pid}/import`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text: $('importBox').value})});
+    $('importBox').value = ''; proj = await api('/api/projects/' + pid); renderMoments(); window.scrollTo({top: $('work').offsetTop, behavior: 'smooth'}); }
+  catch (e) { $('importErr').textContent = e.message; }
+};
+loadProjects();
+</script>
+</body>
+</html>
