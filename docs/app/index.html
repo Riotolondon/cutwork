@@ -115,6 +115,9 @@ dialog ul{padding-left:20px}
       <div class="file" id="fileName"></div>
     </div>
     <input type="file" id="file" accept="video/*,.mkv" class="hidden">
+    <div style="margin-top:14px"><label for="link">Or paste a video link (YouTube, Vimeo, TikTok, Instagram, Facebook, X, Twitch)</label>
+    <input type="text" id="link" placeholder="https://youtu.be/..." inputmode="url" autocomplete="off"></div>
+    <div class="mute" id="linkNote" style="margin-top:4px"></div>
     <div class="row">
       <div><label for="min_len">Shortest clip (seconds)</label><input type="number" id="min_len" value="20" min="5"></div>
       <div><label for="max_len">Longest clip (seconds)</label><input type="number" id="max_len" value="45" min="8"></div>
@@ -126,7 +129,6 @@ dialog ul{padding-left:20px}
     <input type="text" id="keywords" placeholder="ai, gpt, nvidia, startup"></div>
     <div style="margin-top:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
       <button class="primary" id="go" disabled>Find the best moments</button>
-      <span class="mute">Have a link instead? Download the video first, then drop the file here.</span>
     </div>
     <div class="err" id="newErr"></div>
   </section>
@@ -134,7 +136,7 @@ dialog ul{padding-left:20px}
   <!-- the working view -->
   <section class="stage hidden" id="stage" aria-live="polite">
     <div>
-      <ol class="steps" id="steps"><li data-k="audio">Read audio</li><li data-k="model">Load speech model</li><li data-k="words">Transcribe</li><li data-k="moments">Find moments</li><li data-k="render">Render clips</li></ol>
+      <ol class="steps" id="steps"><li data-k="link">Get video</li><li data-k="audio">Read audio</li><li data-k="model">Load speech model</li><li data-k="words">Transcribe</li><li data-k="moments">Find moments</li><li data-k="render">Render clips</li></ol>
       <h2 id="stTitle">Starting</h2>
       <div class="sub" id="stSub"></div>
       <div class="meter"><i id="stBar"></i></div>
@@ -207,8 +209,9 @@ dialog ul{padding-left:20px}
 <video id="rv" playsinline preload="auto" style="position:fixed;left:-9999px;top:0;width:320px;height:180px"></video>
 <video id="pv" playsinline muted preload="auto" style="position:fixed;left:-9999px;top:200px;width:320px;height:180px"></video>
 
+<script src="config.js"></script>
 <script type="module">
-const $ = id => document.getElementById(id);
+const $ =id => document.getElementById(id);
 const fmt = s => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s % 60).padStart(2, '0'); };
 const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -326,7 +329,7 @@ function importMoments(items, ws) {
 const ST = { t0: 0, timer: null, eta: null };
 function stageShow(step, title, sub) {
   $('stage').classList.remove('hidden');
-  const order = ['audio', 'model', 'words', 'moments', 'render'], at = order.indexOf(step);
+  const order = ['link', 'audio', 'model', 'words', 'moments', 'render'], at = order.indexOf(step);
   document.querySelectorAll('#steps li').forEach(li => { const k = order.indexOf(li.dataset.k); li.className = k < at ? 'done' : k === at ? 'on' : ''; });
   $('stTitle').textContent = title; $('stSub').textContent = sub || '';
   if (!ST.timer) { ST.t0 = performance.now(); ST.timer = setInterval(stageTick, 500); }
@@ -352,7 +355,49 @@ function pick(f) {
   if (!f) return;
   $('newErr').textContent = '';
   if (f.size > 1.9 * 2 ** 30) { $('newErr').textContent = 'This file is over 1.9 GB, which is more than a browser can read at once. Use the desktop app for it.'; return; }
-  file = f; $('fileName').textContent = `${f.name} · ${(f.size / 2 ** 20).toFixed(0)} MB`; $('go').disabled = false;
+  file = f; $('fileName').textContent = `${f.name} · ${(f.size / 2 ** 20).toFixed(0)} MB`; $('go').disabled = false; $('link').value = '';
+}
+$('link').oninput = () => { const on = $('link').value.trim().length > 0; if (on) { file = null; $('fileName').textContent = ''; } $('go').disabled = !on && !file; };
+
+/* Links: a browser cannot download from video sites itself, so a small helper server does it. */
+let helper;
+async function findHelper() {
+  if (helper !== undefined) return helper;
+  for (const s of window.CUTWORK_LINK_SERVERS || []) {
+    try { const r = await fetch(s + '/health', { signal: AbortSignal.timeout(2500) }); if (r.ok && (await r.json()).app === 'cutwork-link') return helper = s; } catch (e) {}
+  }
+  return helper = null;
+}
+findHelper().then(s => { if (!s) { helper = undefined; $('linkNote').textContent = 'Links are not available right now: the link helper is not running. You can still drop a video file.'; } });
+async function fetchLink(link) {
+  const s = await findHelper();
+  if (!s) { helper = undefined; throw new Error('Links are not available right now: the link helper is not reachable. Download the video and drop the file here instead.'); }
+  stageShow('link', 'Getting the video', link); stagePct(0, null, '--', 'downloaded');
+  const post = await fetch(s + '/fetch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: link }) });
+  const made = await post.json().catch(() => ({}));
+  if (!post.ok) throw new Error(made.error || 'The link helper refused that link.');
+  let st;
+  for (;;) {
+    await sleep(1200);
+    const r = await fetch(s + '/status/' + made.id); st = await r.json().catch(() => ({}));
+    if (!r.ok || st.stage === 'error') throw new Error(st.error || 'The download stopped. Try the link again.');
+    if (st.stage === 'ready') break;
+    stageShow('link', st.stage, link); stagePct(st.pct * 0.6, st.eta == null ? null : st.eta * 1.4 + 5, st.pct + '%', 'downloaded');
+  }
+  stageShow('link', 'Bringing the video into your browser', st.title);
+  const r = await fetch(s + '/file/' + made.id);
+  if (!r.ok) throw new Error('The downloaded video could not be read. Try the link again.');
+  const total = +r.headers.get('Content-Length') || st.size || 1, parts = [], reader = r.body.getReader(), t0 = performance.now();
+  let got = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    parts.push(value); got += value.length;
+    const rate = got / Math.max((performance.now() - t0) / 1000, 0.2);
+    stagePct(60 + got / total * 40, (total - got) / rate, (rate / 2 ** 20).toFixed(1), 'MB per second');
+  }
+  const name = (st.title || 'video').replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 80) || 'video';
+  return new File(parts, name + '.mp4', { type: 'video/mp4', lastModified: 0 });
 }
 $('drop').onclick = () => $('file').click();
 $('drop').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('file').click(); } };
@@ -410,6 +455,13 @@ $('go').onclick = async () => {
   $('ticker').innerHTML = ''; stageMode(false);
   try {
     await ensureAudio();
+    const link = $('link').value.trim();
+    if (!file && link) {
+      if (!/^https?:\/\/\S+$/.test(link)) throw new Error('That link does not look right. It should start with https://');
+      file = await fetchLink(link);
+      $('fileName').textContent = `${file.name} · ${(file.size / 2 ** 20).toFixed(0)} MB`; $('link').value = '';
+    }
+    if (!file) throw new Error('Choose a video file or paste a link first.');
     if (url) URL.revokeObjectURL(url);
     url = URL.createObjectURL(file);
     for (const v of [$('player'), $('rv'), $('pv')]) v.src = url;
