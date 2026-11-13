@@ -368,10 +368,10 @@ async function findHelper() {
   }
   return helper = null;
 }
-findHelper().then(s => { if (!s) { helper = undefined; $('linkNote').textContent = 'Links are not available right now: the link helper is not running. You can still drop a video file.'; } });
 async function fetchLink(link) {
-  const s = await findHelper();
-  if (!s) { helper = undefined; throw new Error('Links are not available right now: the link helper is not reachable. Download the video and drop the file here instead.'); }
+  stageShow('link', 'Connecting to the link helper', 'If your browser asks to allow access to your local network, choose Allow.'); stagePct(0, null);
+  const s = await findHelper();      // only asked for when a link is used, so other visitors never see that prompt
+  if (!s) { helper = undefined; throw new Error('Links are not available right now: the link helper could not be reached. If your browser asked about local network access, allow it and try again. Otherwise download the video and drop the file here.'); }
   stageShow('link', 'Getting the video', link); stagePct(0, null, '--', 'downloaded');
   const post = await fetch(s + '/fetch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: link }) });
   const made = await post.json().catch(() => ({}));
