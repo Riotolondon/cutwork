@@ -14,6 +14,15 @@ python post.py history                                 what has been posted
 A clip already posted to a platform is skipped next time unless you add `--again`.
 Every post (and every failure) is written to `posted.jsonl`.
 
+## The posting window (TikTok)
+
+Double-click `run_poster.bat` (or `python poster.py`). It opens http://127.0.0.1:5190 and follows TikTok's
+Direct Post rules: it shows the connected account's name, a preview, an editable caption, a privacy choice with no
+default, comment/duet/stitch boxes that start unticked (greyed if turned off in TikTok), the commercial content
+disclosure, and TikTok's consent wording above the Post button. Use this window for TikTok's review demo video.
+
+Clips posted to TikTok must not carry the CUTWORK watermark: TikTok's rules forbid promotional watermarks or logos.
+
 ## Set up once
 
 Run `python post.py check` first. It prints the two redirect addresses you need below.

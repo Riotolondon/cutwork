@@ -451,6 +451,13 @@ def tt_creator_info():
     return r.get("data") or {}
 
 
+def tt_user_info():
+    """Basic profile (user.info.basic): shown so the creator can see which account is connected."""
+    r = http("GET", f"{TT_API}/v2/user/info/", headers=tt_headers(),
+             params={"fields": "open_id,avatar_url,display_name"})
+    return (r.get("data") or {}).get("user") or {}
+
+
 def tt_chunks(size):
     """(chunk_size, count) under TikTok's rules: whole file up to 64 MB, else 10 MB chunks with the last one absorbing the rest."""
     if size <= 64 * 1024 * 1024:
@@ -459,18 +466,26 @@ def tt_chunks(size):
     return chunk, size // chunk
 
 
-def post_tiktok(clip, caption, privacy=None):
+def post_tiktok(clip, caption, privacy=None, allow_comment=True, allow_duet=True, allow_stitch=True,
+                brand_organic=False, brand_content=False, progress=None):
+    say_ = progress or say
     info = tt_creator_info()
     options = info.get("privacy_level_options") or []
     privacy = privacy or load_env().get("TIKTOK_PRIVACY") or "SELF_ONLY"
     if options and privacy not in options:
         raise PostError(f"TikTok does not allow privacy '{privacy}' for this account. Allowed: {', '.join(options)}")
+    if brand_content and privacy == "SELF_ONLY":
+        raise PostError("Branded content visibility cannot be set to private.")
     size = clip.stat().st_size
     chunk, count = tt_chunks(size)
-    say(f"  TikTok: starting upload ({size / 2**20:.1f} MB, {count} part{'s' if count > 1 else ''}, privacy {privacy})")
+    say_(f"  TikTok: starting upload ({size / 2**20:.1f} MB, {count} part{'s' if count > 1 else ''}, privacy {privacy})")
     r = http("POST", f"{TT_API}/v2/post/publish/video/init/", headers=tt_headers(), json_body={
-        "post_info": {"title": caption[:2200], "privacy_level": privacy, "disable_duet": False, "disable_comment": False,
-                      "disable_stitch": False, "video_cover_timestamp_ms": 1000},
+        "post_info": {"title": caption[:2200], "privacy_level": privacy,
+                      "disable_duet": not allow_duet or bool(info.get("duet_disabled")),
+                      "disable_comment": not allow_comment or bool(info.get("comment_disabled")),
+                      "disable_stitch": not allow_stitch or bool(info.get("stitch_disabled")),
+                      "video_cover_timestamp_ms": 1000,
+                      "brand_organic_toggle": bool(brand_organic), "brand_content_toggle": bool(brand_content)},
         "source_info": {"source": "FILE_UPLOAD", "video_size": size, "chunk_size": chunk, "total_chunk_count": count}})
     data = r.get("data") or {}
     publish_id, upload_url = data.get("publish_id"), data.get("upload_url")
@@ -493,7 +508,8 @@ def post_tiktok(clip, caption, privacy=None):
                         raise
                     time.sleep(5)
             if count > 1:
-                say(f"  TikTok: part {i + 1} of {count} sent")
+                say_(f"  TikTok: part {i + 1} of {count} sent")
+    say_("  TikTok: upload finished, TikTok is processing the video")
     deadline = time.time() + 15 * 60
     while True:
         s = http("POST", f"{TT_API}/v2/post/publish/status/fetch/", headers=tt_headers(),
@@ -506,7 +522,7 @@ def post_tiktok(clip, caption, privacy=None):
             raise PostError(f"TikTok could not post the clip: {s.get('fail_reason')}")
         if time.time() > deadline:
             raise PostError(f"TikTok was still processing after 15 minutes (publish id {publish_id}).")
-        say(f"  TikTok: {st or 'waiting'}")
+        say_(f"  TikTok: {st or 'waiting'}")
         time.sleep(8)
 
 
