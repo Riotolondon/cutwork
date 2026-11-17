@@ -16,3 +16,9 @@ __pycache__/
 # local settings and secrets
 .env
 .claude/
+
+# cutwork-post: keys, sign-in tokens and post history stay on this computer
+cutwork-post/.env
+cutwork-post/tokens.json
+cutwork-post/tokens.tmp
+cutwork-post/posted.jsonl
